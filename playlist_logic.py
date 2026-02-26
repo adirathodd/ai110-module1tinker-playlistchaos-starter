@@ -60,23 +60,31 @@ def normalize_song(raw: Song) -> Song:
 def classify_song(song: Song, profile: Dict[str, object]) -> str:
     """Return a mood label given a song and user profile."""
     energy = song.get("energy", 0)
-    genre = song.get("genre", "")
-    title = song.get("title", "")
+    genre = (song.get("genre", "") or "").lower()  # Normalize genre
+    title = (song.get("title", "") or "").lower()  # Normalize title
 
     hype_min_energy = profile.get("hype_min_energy", 7)
     chill_max_energy = profile.get("chill_max_energy", 3)
-    favorite_genre = profile.get("favorite_genre", "")
+    favorite_genre = str(profile.get("favorite_genre", "")).lower()  # Normalize favorite genre
 
     hype_keywords = ["rock", "punk", "party"]
     chill_keywords = ["lofi", "ambient", "sleep"]
 
-    is_hype_keyword = any(k in genre for k in hype_keywords)
-    is_chill_keyword = any(k in title for k in chill_keywords)
-
-    if genre == favorite_genre or energy >= hype_min_energy or is_hype_keyword:
+    # Check energy levels first
+    if energy >= hype_min_energy:
         return "Hype"
-    if energy <= chill_max_energy or is_chill_keyword:
+    if energy <= chill_max_energy:
         return "Chill"
+
+    # Check keywords and favorite genre only if energy thresholds are not met
+    is_hype_keyword = any(k in genre for k in hype_keywords)
+    is_chill_keyword = any(k in genre for k in chill_keywords)
+
+    if is_hype_keyword or genre == favorite_genre:
+        return "Mixed"  # Change to "Mixed" if energy doesn't meet thresholds
+    if is_chill_keyword:
+        return "Chill"
+
     return "Mixed"
 
 
@@ -98,11 +106,22 @@ def build_playlists(songs: List[Song], profile: Dict[str, object]) -> PlaylistMa
 
 
 def merge_playlists(a: PlaylistMap, b: PlaylistMap) -> PlaylistMap:
-    """Merge two playlist maps into a new map."""
+    """Merge two playlist maps into a new map without mutating inputs and remove duplicates."""
+    def make_hashable(song: Song) -> tuple:
+        """Convert a song dictionary into a hashable tuple, handling nested lists."""
+        def convert_value(value):
+            if isinstance(value, list):
+                return tuple(value)  # Convert lists to tuples
+            return value
+
+        return tuple((k, convert_value(v)) for k, v in song.items())
+
     merged: PlaylistMap = {}
     for key in set(list(a.keys()) + list(b.keys())):
-        merged[key] = a.get(key, [])
-        merged[key].extend(b.get(key, []))
+        # Combine playlists and remove duplicates using a set of hashable tuples for unique songs
+        combined = a.get(key, []) + b.get(key, [])
+        unique_songs = {make_hashable(song): song for song in combined}  # Use hashable tuples as keys
+        merged[key] = list(unique_songs.values())
     return merged
 
 
